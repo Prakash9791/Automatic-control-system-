@@ -1,0 +1,228 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include <RTClib.h>
+#include <EEPROM.h>
+#include <stdbool.h>
+#include <SoftwareSerial.h>
+#define tempraturethreshold 20.0 //range between 0-200
+RTC_DS3231 rtc; // RTC MODULE FOR SENSING REAL TIME CLOCK
+TC_LM35; //TEMPRATURE MODULE FOR SENSING THE TEMPRATURE inside cooling Box.
+
+//PIN DECLARTION 
+const int motorPin = 9;            //PWM control pin 
+const int safetySwitchPin = 12;    // safety switch PIN
+const int emergencyStopPin = 13;   //emergency stop button PIN
+const int tempraturesensorpin=A1   //analog_temprature sensor pin 
+const int cooling_mechanisnpin=11  //cooling pin
+
+//MOTER SPEED BASED ON TEMPRATURE SENSOR(range between 0-200 & 0-20v
+//It has dupulate value & Actual value from temprature sensor_Real-time 
+
+const int Highspeed = 180         //High cooling system 
+const int lowspeed  =40           //low mode colling system 
+const int moderatespeed =100      //Moderate cooling system 
+
+//SHIFT BASED RUNNING BASED ON RTC
+const int morningSpeed = 50;      // Speed for the motor in the morning (0-255)
+const int afternoonSpeed = 230;   // Speed for the motor in the afternoon (0-255)
+const int nightSpeed = 242;       //Speed for the motor at night (0-255)
+
+//UART COMMUNICATION
+  SoftwareSerial centralUnitSerial(2, 3); //UART communication (tx,rx)
+
+//Define the structure to store the last data and critical data & --->Memory 
+ 
+struct machinestate
+{
+volatile float temprature;
+volatile int   motorspeed;
+volatile float preasure;
+volatile int   realclock;
+}Currentstatemachine;    //variable declartion for storing element 
+
+
+void setup() 
+  pinMode(motorPin, OUTPUT);
+  pinMode(safetySwitchPin, INPUT_PULLUP);
+  pinMode(emergencyStopPin, INPUT_PULLUP);
+  pinMode(cooling_mechanisnpin,OUTPUT);
+  Wire.begin();
+  rtc.begin();
+  restoreLastState();
+  EEPROM.begin(sizeof(currentMachineState));
+  // Set the initial motor speed based on the time of day
+  adjustMotorSpeed();
+  serial.begin(9600); 
+}
+
+
+void loop() //LOOP START
+{
+
+// Check the safety switch
+  if (digitalRead(safetySwitchPin) == LOW) 
+   {
+       emergencyStop(); // Perform emergency stop if the safety switch is turned off
+       Alarm();  //alarm function and notify on HMI 
+    }
+// Check the emergency stop button
+ 
+  else(digitalRead(emergencyStopPin) == LOW) 
+    {
+     emergencyStop(); // Perform emergency stop if the button is pressed   
+     alarm();
+     sprintf("\n types of error shown on HMI");
+    }
+//Memory_storing element 
+  else if(StoreState()) 
+   {
+      storeCurrentState();
+   }
+
+//Get the current time from the RTC
+    DateTime now = rtc.now();
+
+// Adjust motor speed based on the time of day
+ 
+    adjustMotorSpeed(now.hour());
+//adjeust moterspeed based on the Tempreature inside cooling machine pin
+    
+   analogWrite(motorPin, getMotorSpeed());
+  
+   adjustMotorSpeed1 (); 
+   delay(1000-1);
+}//loop end
+
+//memory-->To store the data of Function as per a Periorities based.
+  
+   bool StoreState()
+   {
+    adjustMotorSpeed1();
+    readTemprature();
+    adjustMotorSpeed();
+    controlCooling();
+    getMotorSpeed();
+   }
+
+//we can be use constant value either "readTempraure()" function-Optional 
+   
+  float readTemprature()
+   {
+     analogread(tempraturesensorpin);
+     digital value = (analog voltage 'from temprature sensor pin' / full scale range(0-20v)) * (2^n - 1);
+     digitalvalue();
+     Serial.println("Temprature value =%f");
+     retrun 0;  
+   }
+
+//Memory -->To store the data of Current machine state,we can able retrive the data from EEPROM module. 
+
+   void storeCurrentState() 
+   {
+       // Write the currentState to EEPROM
+       // write the value of Currentstatemachine to cell "1" of EEPROM module 
+       EEPROM.put(1,Currentstatemachine);
+       EEPROM.commit();
+   }
+
+//AdjustMotorspeed based on Real time clock(RTC).
+   void adjustMotorSpeed(int hour) 
+  
+  {
+       //Adjust the motor speed based on the time of day
+     if (hour >= 6 && hour < 12)
+    {
+      analogWrite(motorPin, morningSpeed);
+    } 
+    else if (hour >= 12 && hour < 18)
+    {
+     analogWrite(motorPin, afternoonSpeed);
+    } 
+   else 
+    {
+     analogWrite(motorPin, nightSpeed);
+    }
+     Serial.println("Range of Motor speed :%d",adjustMotorspeed());
+}
+
+// store the LAST MACHINE STATE to Memory module  during poweroff time 
+//After power on,It can be run from which status of machine. 
+    void restoreLastStatere()
+    {
+     EEPROM.get(1 ,currentMachineState);
+    }
+
+// Function to control the cooling mechanism (e.g., turn on/off the fan)
+ 
+  void controlCooling(bool turnOn)
+     {
+      if (turnOn)
+        {
+        digitalWrite(COOLING_MECHANISM_PIN, HIGH); // Turn on cooling mechanism
+        }
+   else 
+       {
+       digitalWrite(COOLING_MECHANISM_PIN, LOW); // Turn off cooling mechanism
+       }  
+     }
+//Adjust the motor speed based on "TEMPRATURE SENSOR".
+ 
+   void adjustMotorSpeed1(int fan_control)
+      {
+            //adjust the motor speed based on the tempreature controller
+            if(currentTemperature > tempraturethreshold) 
+               {
+                // Temperature is above the threshold, turn on the cooling mechanism
+                  controlCooling(true);
+ 
+                 //Print a message for debugging 
+                  Serial.println("Cooling mechanism is ON");
+                }
+                
+             else if(currentTemprature >= lowspeed)
+                {
+                    controlCooling(true);      
+                  //Print a message for debugging
+                   Serial.println("Low cooling mode");
+               }
+            else if(currentTemprature >=highspeed)
+               {
+                  controlCooling(true); 
+                  //Print a message for debugging
+                  Serial.println("High cooling mode");
+               }
+
+           else if(currentTemprature >=Moderatespeed)
+               {
+                 controlCooling(true);
+                 //print a message for debugging
+                 serial.println("Medium cooling mode") //On HMI 
+               }
+          else 
+              {
+              // Temperature is below the threshold, turn off the cooling mechanism
+              controlCooling(false);     
+              // Print a message for debugging 
+              Serial.println("Cooling mechanism is OFF");
+              }
+  delay(1000);
+}
+
+//Motor speed get from analogpin(0-20v and 0-255 rpm) 
+      
+      int getMotorSpeed() 
+          {
+            return analogRead(motorPin);
+          }
+
+void emergencyStop()  
+   {
+     // Perform emergency stop logic here
+     digitalWrite(motorPin, LOW); // Turn off the motor
+   while (true) 
+       {
+         // Implement fail-safe operations
+         analogwirte(motorpin,lowspeed(0));            
+         Serial.println("Emergency!");
+       }
+   }
